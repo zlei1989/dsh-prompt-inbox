@@ -1,0 +1,10 @@
+allowBuilds:
+  '@swc/core': false
+  esbuild: true
+
+# tsx 自带 `esbuild: ~0.28.0`，而 tsup 内置 0.27.x。两个版本并存会让安装结果
+# 依赖镜像源里 0.28.2 的 postinstall 校验是否通过（JD 镜像上曾因二进制不匹配失败）。
+# 把整棵依赖树固定到 tsup 内置的可用版本，只保留一个 esbuild——与参考仓库
+# dsh-webpage-element-picker 相同的处置。
+overrides:
+  esbuild: 0.27.7

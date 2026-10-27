@@ -13,6 +13,11 @@
  * 类型是本插件自己窄化的（与 `services.ts` 同一策略）：本仓库没有安装这个包，
  * 从它 `import type` 会直接解析失败。运行时形状以 0.1.5-rc.2 为准——
  * `ui-primitives/src/Modal.tsx`、`Button.tsx`、`icons/index.tsx`。
+ *
+ * 但**窄化不等于假装某个导出一定在**：同一个字形在不同版本里换过名字（对勾图标
+ * 0.1.5-rc.2 叫 `IconCheckOutline16`，当前版叫 `IconCheckOutlineRegular` / `…Medium`），
+ * 而按名字取到一个 `undefined` 再交给 `h()` 会抛 React #130，把整块 slot 条目的内容
+ * 一起带走。所以图标一律经 {@link resolveIcon} 解析并判空后再用——见那里的现场记录。
  */
 
 import type { ComponentType, ReactNode } from 'react'
@@ -66,6 +71,13 @@ export interface IconProps {
  */
 export interface ToastProps {
   text: string
+  /**
+   * 语义色条（当前版平台：`tone === 'success'` 时**自带**成功对勾图标，并忽略 `icon`）。
+   *
+   * 优先用它而不是自己传图标：图标常量在各版本里换了名字，靠名字取组件会静默变
+   * `undefined`，而 `h(undefined)` 会让整块 slot 崩掉（见 {@link resolveIcon}）。
+   */
+  tone?: 'success'
   icon?: ReactNode
   /**
    * 横幅横向居中对齐到哪个元素（平台传的是输入卡，让横幅压在对话列上而不是整窗中心）；
@@ -77,14 +89,53 @@ export interface ToastProps {
   onDone: () => void
 }
 
-/** 平台模块表面（只声明本插件读取的成员）。 */
+/**
+ * 平台模块表面（只声明本插件读取的成员）。
+ *
+ * 图标**不在这里声明**：平台各版本给同一个字形的名字不同（实测当前版导出
+ * `IconCheckOutlineRegular` / `IconCheckOutlineMedium`，而 0.1.5-rc.2 是
+ * `IconCheckOutline16`），写死任何一个都会在另一版上取到 `undefined`。图标一律经
+ * {@link resolveIcon} 按候选名解析。
+ */
 interface PrimitivesModule {
   Modal: ComponentType<ModalProps>
   Button: ComponentType<ButtonProps>
   Toast: ComponentType<ToastProps>
-  IconTrashOutline16: ComponentType<IconProps>
-  IconCheckOutline16: ComponentType<IconProps>
+}
+
+/** 平台的图标导出可能不存在（见 {@link PrimitivesModule} 的说明）。 */
+type IconComponent = ComponentType<IconProps> | undefined
+
+/**
+ * 按候选名解析一个图标组件，全部缺失时返回 `undefined`。
+ *
+ * **返回值必须判空再渲染**：`h(undefined)` 会抛 React #130（"Element type is invalid"），
+ * 而 slot 的错误边界会因此把**整个条目**卸掉——曾经的具体后果是：删除一条草稿后弹成功
+ * toast，图标取成 `undefined` 把 `conversation.input.dock` 整块打崩，用户看到的是
+ * 「删一条，整张草稿列表消失」，误以为删掉了全部草稿。
+ *
+ * @param names - 候选导出名，按优先级排列（新版名放前面）。
+ * @returns 第一个存在的组件；一个都没有时为 `undefined`。
+ */
+function resolveIcon(...names: string[]): IconComponent {
+  const table = Primitives as unknown as Record<string, unknown>
+  for (const name of names) {
+    const candidate = table[name]
+    if (candidate !== undefined) return candidate as IconComponent
+  }
+  return undefined
 }
 
 /** 平台模块实例。 */
 export const Primitives = require('@deepseek-ai/dsh-client-ui-primitives') as PrimitivesModule
+
+/**
+ * 成功态对勾图标：**可能为 `undefined`**（平台没有这个字形时）。
+ *
+ * 只给不支持 `tone` 的旧版平台兜底用；当前版由 `Toast` 的 `tone: 'success'` 自带图标。
+ */
+export const CheckIcon: IconComponent = resolveIcon(
+  'IconCheckOutlineRegular',
+  'IconCheckOutlineMedium',
+  'IconCheckOutline16',
+)

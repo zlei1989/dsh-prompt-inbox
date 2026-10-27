@@ -60,11 +60,42 @@ test('toast 的 key 来自自增 seq（同一句话连着弹两次也要重新�
   // （InputBar / FeedbackDialog）也用 seq 解决，这里必须跟着做
   assert.match(toastModule, /noticeSeq \+= 1/)
   assert.match(toastModule, /return \{ seq: noticeSeq, text \}/)
-  assert.match(toastModule, /key: props\.notice\.seq/)
+  // key 现在挂在错误边界上（横幅本身由边界包着），来源仍是 seq
+  assert.match(toastModule, /key: notice\.seq/)
 })
 
 test('toast 的关闭由 onDone 驱动，不是一个自己写的定时器', () => {
   // 停留 + 淡出的时长归平台（holdMs / FADE_MS），本插件不该再抄一份数字
   assert.match(toastModule, /onDone: props\.onDone/)
   assert.equal(/setTimeout/.test(toastModule), false, '不该自己排定时器')
+})
+
+test('横幅不把平台图标名写死当组件用（取到 undefined 会把整块 slot 打崩）', () => {
+  // 现场故障：删除一条草稿 → 成功 toast 里 `h(Primitives.IconCheckOutline16, …)`，
+  // 而当前版 primitives 导出的名字是 IconCheckOutlineRegular/Medium，
+  // 于是 h(undefined) 抛 React #130 → 平台的 slot 错误边界把整个
+  // conversation.input.dock 条目卸掉 → 用户看到「删一条草稿，整张草稿列表消失」。
+  // 因此：图标只许经 resolveIcon 解析，且传给 Toast 之前必须判空。
+  assert.equal(
+    /Primitives\.Icon[A-Za-z]/.test(toastModule),
+    false,
+    'toast 不得直接引用平台图标名（跨版本会取到 undefined）',
+  )
+  assert.match(toastModule, /CheckIcon === undefined \? \{\} : \{ icon: h\(CheckIcon, null\) \}/)
+  // 首选语义色条：当前版平台由 tone 自带对勾，不依赖任何图标导出
+  assert.match(toastModule, /tone: 'success'/)
+})
+
+test('横幅包在只罩住自己的错误边界里（提示可以丢，列表不能丢）', () => {
+  // 平台对 slot 条目的处置是整条卸载，所以横幅必须自带边界；
+  // 边界按 seq 换实例，否则第一次失败会永久挡住后续所有提示
+  assert.equal(toastModule.includes('return { failed: true }'), true, '横幅没有错误边界')
+  assert.match(toastModule, /h\(\s*ToastBoundary,\s*\{ key: notice\.seq \}/)
+})
+
+test('primitives 的图标解析在全部候选都缺失时返回 undefined', () => {
+  const primitives = source('src/client/primitives.ts')
+  // 候选名按新版到旧版排列，且缺失返回 undefined 而不是抛错/兜底成假组件
+  assert.match(primitives, /'IconCheckOutlineRegular',\s*'IconCheckOutlineMedium',\s*'IconCheckOutline16'/)
+  assert.match(primitives, /return undefined/)
 })
